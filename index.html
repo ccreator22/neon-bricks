@@ -1,0 +1,1095 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NEON BRICKS — 벽돌깨기</title>
+
+<!-- Tailwind CSS -->
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;800;900&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+
+<!-- Firebase (compat SDK) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<style>
+  :root{
+    --neon-pink:#ff4d8d;
+    --neon-cyan:#4cc9f0;
+    --neon-violet:#b388ff;
+    --neon-lime:#8ef58a;
+    --neon-amber:#ffce4d;
+    --ink:#05060f;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+  body{
+    margin:0;
+    font-family:'Outfit','Noto Sans KR',system-ui,sans-serif;
+    background:var(--ink);
+    color:#eef1ff;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ---------- animated background ---------- */
+  #bg{ position:fixed; inset:0; z-index:-2; overflow:hidden; background:
+      radial-gradient(1200px 700px at 15% -10%, rgba(179,136,255,.20), transparent 60%),
+      radial-gradient(1000px 600px at 95% 10%, rgba(76,201,240,.16), transparent 60%),
+      radial-gradient(900px 700px at 50% 115%, rgba(255,77,141,.18), transparent 60%),
+      linear-gradient(180deg,#05060f 0%,#080a1a 60%,#05060f 100%);
+  }
+  #bg .grid{
+    position:absolute; inset:-2px;
+    background-image:linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+                     linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+    background-size:46px 46px;
+    mask-image:radial-gradient(circle at 50% 40%, black, transparent 78%);
+    -webkit-mask-image:radial-gradient(circle at 50% 40%, black, transparent 78%);
+  }
+  .orb{ position:absolute; border-radius:50%; filter:blur(70px); opacity:.5; animation:float 18s ease-in-out infinite; }
+  .orb.a{ width:420px;height:420px; background:#ff4d8d; top:-120px; left:-80px; }
+  .orb.b{ width:380px;height:380px; background:#4cc9f0; bottom:-140px; right:-60px; animation-delay:-6s; }
+  .orb.c{ width:300px;height:300px; background:#b388ff; top:40%; left:55%; animation-delay:-12s; }
+  @keyframes float{
+    0%,100%{ transform:translate(0,0) scale(1); }
+    33%{ transform:translate(40px,-30px) scale(1.08); }
+    66%{ transform:translate(-30px,25px) scale(.95); }
+  }
+
+  /* ---------- glass components ---------- */
+  .glass{
+    background:rgba(255,255,255,.055);
+    border:1px solid rgba(255,255,255,.12);
+    backdrop-filter:blur(16px) saturate(140%);
+    -webkit-backdrop-filter:blur(16px) saturate(140%);
+    box-shadow:0 24px 60px -24px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.09);
+  }
+  .glass-soft{
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.09);
+    backdrop-filter:blur(10px);
+  }
+
+  .is-hidden{ display:none !important; }
+
+  .title-glow{
+    background:linear-gradient(92deg,#fff 0%, #ffd9e8 25%, #b388ff 55%, #4cc9f0 85%);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    filter:drop-shadow(0 0 26px rgba(179,136,255,.45));
+  }
+
+  /* ---------- buttons ---------- */
+  .btn{
+    position:relative; display:inline-flex; align-items:center; justify-content:center; gap:.5rem;
+    font-family:inherit; font-weight:800; letter-spacing:.02em;
+    border-radius:14px; padding:.85rem 1.5rem; font-size:1rem; cursor:pointer;
+    border:1px solid rgba(255,255,255,.16); color:#fff; background:rgba(255,255,255,.07);
+    transition:transform .16s cubic-bezier(.2,.9,.3,1.3), box-shadow .2s, background .2s, filter .2s;
+    user-select:none; white-space:nowrap;
+  }
+  .btn:hover{ transform:translateY(-2px); background:rgba(255,255,255,.12); }
+  .btn:active{ transform:translateY(0) scale(.98); }
+  .btn-primary{
+    background:linear-gradient(120deg,#ff4d8d,#b388ff 55%,#4cc9f0);
+    border-color:transparent; color:#0b0620;
+    box-shadow:0 12px 34px -10px rgba(255,77,141,.75), 0 0 0 1px rgba(255,255,255,.12) inset;
+  }
+  .btn-primary:hover{ box-shadow:0 18px 44px -10px rgba(179,136,255,.85); filter:saturate(115%); }
+  .btn-ghost{ background:rgba(255,255,255,.05); }
+  .btn-sm{ padding:.5rem .9rem; font-size:.85rem; border-radius:11px; }
+
+  .field{
+    width:100%; background:rgba(8,10,26,.72); border:1px solid rgba(255,255,255,.14);
+    border-radius:14px; padding:.9rem 1.05rem; color:#fff; font-size:1.05rem; font-weight:600;
+    outline:none; transition:border .2s, box-shadow .2s;
+  }
+  .field::placeholder{ color:rgba(238,241,255,.35); font-weight:500; }
+  .field:focus{ border-color:rgba(179,136,255,.8); box-shadow:0 0 0 4px rgba(179,136,255,.16); }
+
+  /* ---------- chips ---------- */
+  .chip{
+    display:inline-flex; align-items:center; gap:.4rem;
+    padding:.4rem .8rem; border-radius:999px; font-size:.82rem; font-weight:700;
+    background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.12); color:#dfe4ff;
+  }
+  .kbd{
+    display:inline-grid; place-items:center; min-width:2rem; padding:.15rem .45rem;
+    border-radius:7px; font-size:.78rem; font-weight:800; color:#0b0620;
+    background:linear-gradient(180deg,#fff,#cfd6ff); box-shadow:0 2px 0 rgba(0,0,0,.45);
+  }
+
+  /* ---------- HUD ---------- */
+  .stat{
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-width:5.6rem; padding:.5rem .85rem; border-radius:13px;
+    background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+  }
+  .stat .label{ font-size:.62rem; letter-spacing:.16em; text-transform:uppercase; color:rgba(238,241,255,.5); font-weight:700; }
+  .stat .value{ font-size:1.35rem; font-weight:900; line-height:1.15; font-variant-numeric:tabular-nums; }
+
+  /* ---------- canvas ---------- */
+  #stage{ position:relative; width:100%; max-width:660px; margin:0 auto; }
+  #game{
+    display:block; width:100%; height:auto; aspect-ratio:640/720; border-radius:20px;
+    background:#070917;
+    border:1px solid rgba(255,255,255,.12);
+    box-shadow:0 30px 80px -30px rgba(0,0,0,.9), 0 0 90px -50px rgba(179,136,255,.7);
+    touch-action:none;
+  }
+
+  /* ---------- overlays ---------- */
+  .ov{
+    position:absolute; inset:0; z-index:20; display:grid; place-items:center;
+    background:rgba(4,5,14,.78); backdrop-filter:blur(8px); border-radius:20px; padding:1rem;
+    animation:fadeIn .22s ease-out;
+  }
+  @keyframes fadeIn{ from{opacity:0} to{opacity:1} }
+  .ov-card{ width:100%; max-width:26rem; text-align:center; padding:2rem 1.6rem; border-radius:22px; animation:pop .28s cubic-bezier(.2,.9,.3,1.35); }
+  @keyframes pop{ from{ transform:scale(.9) translateY(10px); opacity:0 } to{ transform:scale(1) translateY(0); opacity:1 } }
+
+  /* ---------- leaderboard ---------- */
+  .lb-row{
+    display:grid; grid-template-columns:2.1rem 1fr auto; align-items:center; gap:.6rem;
+    padding:.6rem .7rem; border-radius:12px; background:rgba(255,255,255,.035);
+    border:1px solid rgba(255,255,255,.07); transition:background .2s, transform .2s;
+  }
+  .lb-row:hover{ background:rgba(255,255,255,.08); transform:translateX(2px); }
+  .lb-row.me{ border-color:rgba(255,77,141,.55); background:linear-gradient(90deg, rgba(255,77,141,.16), rgba(179,136,255,.08)); }
+  .lb-rank{ font-weight:900; text-align:center; font-size:.95rem; color:#cfd6ff; }
+  .lb-row.top1 .lb-rank{ color:#ffce4d; text-shadow:0 0 14px rgba(255,206,77,.7); }
+  .lb-row.top2 .lb-rank{ color:#e6e9ff; }
+  .lb-row.top3 .lb-rank{ color:#ff9f68; }
+  .lb-name{ font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .lb-row > div{ min-width:0; }
+  .min-w-0{ min-width:0; }
+  .lb-sub{ font-size:.68rem; color:rgba(238,241,255,.42); font-weight:600; }
+  .lb-score{ font-weight:900; font-variant-numeric:tabular-nums; color:#8ef58a; }
+
+  .pulse-dot{ width:8px;height:8px;border-radius:50%; background:#8ef58a; box-shadow:0 0 0 0 rgba(142,245,138,.7); animation:pulse 2s infinite; }
+  .pulse-dot.warn{ background:#ffce4d; box-shadow:0 0 0 0 rgba(255,206,77,.7); }
+  @keyframes pulse{ 0%{box-shadow:0 0 0 0 rgba(142,245,138,.6)} 70%{box-shadow:0 0 0 10px rgba(142,245,138,0)} 100%{box-shadow:0 0 0 0 rgba(142,245,138,0)} }
+
+  .shake{ animation:shake .38s ease-in-out; }
+  @keyframes shake{ 0%,100%{transform:translate(0,0)} 20%{transform:translate(-7px,3px)} 40%{transform:translate(6px,-4px)} 60%{transform:translate(-5px,-2px)} 80%{transform:translate(4px,3px)} }
+
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:rgba(255,255,255,.14); border-radius:99px; }
+  ::-webkit-scrollbar-thumb:hover{ background:rgba(255,255,255,.24); }
+
+  .marquee{ overflow:hidden; }
+  .marquee span{ display:inline-block; animation:slide 16s linear infinite; }
+  @keyframes slide{ from{transform:translateX(0)} to{transform:translateX(-50%)} }
+</style>
+</head>
+
+<body>
+<div id="bg">
+  <div class="grid"></div>
+  <div class="orb a"></div>
+  <div class="orb b"></div>
+  <div class="orb c"></div>
+</div>
+
+<main class="min-h-screen w-full px-4 py-6 sm:py-8 flex flex-col items-center">
+
+  <!-- ===================== HEADER ===================== -->
+  <header class="w-full max-w-6xl flex items-center justify-between gap-3 mb-6">
+    <div class="flex items-center gap-3">
+      <div class="w-11 h-11 rounded-2xl grid place-items-center text-2xl" style="background:linear-gradient(135deg,#ff4d8d,#b388ff 55%,#4cc9f0); box-shadow:0 10px 30px -8px rgba(255,77,141,.7)">🧱</div>
+      <div>
+        <h1 class="text-xl sm:text-2xl font-black tracking-tight title-glow leading-none">NEON BRICKS</h1>
+        <p class="text-[11px] sm:text-xs font-semibold text-white/45 tracking-[.2em] uppercase">Brick Breaker · Realtime Ranking</p>
+      </div>
+    </div>
+    <div id="connBadge" class="chip"><span class="pulse-dot warn"></span><span id="connText">Firebase 확인 중…</span></div>
+  </header>
+
+  <!-- ===================== LOGIN SCREEN ===================== -->
+  <section id="loginScreen" class="w-full max-w-6xl grid lg:grid-cols-[1.15fr_.85fr] gap-6 items-start">
+    <div class="glass rounded-3xl p-7 sm:p-10">
+      <span class="chip mb-4">🔥 2026 시즌 랭킹전</span>
+      <h2 class="text-4xl sm:text-5xl font-black leading-tight title-glow mb-3">벽돌을<br>모두 깨뜨려라</h2>
+      <p class="text-white/60 font-medium leading-relaxed mb-7">
+        네온 패들로 반사를 조종해 3스테이지의 벽돌을 전부 파괴하면 <b class="text-white">최종 승리</b>!<br>
+        점수는 Firebase 실시간 데이터베이스에 저장되고, 전 세계 상위 10명의 순위표에 즉시 반영됩니다.
+      </p>
+
+      <form id="loginForm" class="space-y-3" autocomplete="off">
+        <label class="block text-xs font-bold tracking-[.18em] uppercase text-white/45 mb-1.5">플레이어 이름</label>
+        <div class="flex flex-col sm:flex-row gap-3">
+          <input id="nameInput" class="field sm:flex-1" type="text" maxlength="12" placeholder="예: kimcoder (최대 12자)" />
+          <button id="startBtn" type="submit" class="btn btn-primary sm:w-44">게임 시작 <span>→</span></button>
+        </div>
+        <p id="loginError" class="is-hidden text-sm font-bold text-pink-400">이름을 입력해 주세요!</p>
+      </form>
+
+      <div class="mt-7 pt-6 border-t border-white/10 grid sm:grid-cols-3 gap-3">
+        <div class="glass-soft rounded-2xl p-4">
+          <div class="text-2xl mb-1.5">⌨️</div>
+          <div class="font-bold text-sm mb-1">조작</div>
+          <div class="text-xs text-white/50 leading-relaxed"><span class="kbd">←</span> <span class="kbd">→</span> 이동 · <span class="kbd">Space</span> 발사 · <span class="kbd">P</span> 일시정지</div>
+        </div>
+        <div class="glass-soft rounded-2xl p-4">
+          <div class="text-2xl mb-1.5">🏆</div>
+          <div class="font-bold text-sm mb-1">승리 조건</div>
+          <div class="text-xs text-white/50 leading-relaxed">모든 벽돌 파괴 시 클리어. 생명 3개, 스테이지 3개</div>
+        </div>
+        <div class="glass-soft rounded-2xl p-4">
+          <div class="text-2xl mb-1.5">⚡</div>
+          <div class="font-bold text-sm mb-1">점수</div>
+          <div class="text-xs text-white/50 leading-relaxed">위쪽 벽돌일수록 고득점. 클리어 보너스 + 남은 생명 보너스</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- login side: preview leaderboard -->
+    <div class="glass rounded-3xl p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-black text-lg">🏅 실시간 TOP 10</h3>
+        <span class="chip" id="loginCountChip">집계 중…</span>
+      </div>
+      <div id="loginBoard" class="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+        <div class="text-sm text-white/40 py-8 text-center">불러오는 중…</div>
+      </div>
+      <p class="mt-4 text-xs text-white/40 leading-relaxed">
+        * 동점일 경우 가장 최근에 달성한 기록이 위에 표시됩니다.
+      </p>
+      <div id="fbHint" class="is-hidden mt-3 rounded-xl p-3 text-[11px] leading-relaxed font-semibold" style="background:rgba(255,206,77,.1);border:1px solid rgba(255,206,77,.3);color:#ffce4d">
+        ⚠️ Firebase 설정값이 그대로입니다. <code>index.html</code>의 <code>firebaseConfig</code>를 본인 프로젝트 값으로
+        교체하고, Realtime Database 규칙을 테스트용으로 공개해 주세요:<br>
+        <code class="text-white/70">{ "rules": { ".read": true, ".write": true } }</code>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== GAME SCREEN ===================== -->
+  <section id="gameScreen" class="is-hidden w-full max-w-6xl">
+    <!-- HUD -->
+    <div class="glass rounded-2xl px-4 py-3 mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-2.5">
+        <div class="w-9 h-9 rounded-xl grid place-items-center font-black text-sm" id="avatar" style="background:linear-gradient(135deg,#4cc9f0,#b388ff)">?</div>
+        <div>
+          <div class="text-[10px] tracking-[.18em] uppercase text-white/45 font-bold">Player</div>
+          <div id="hudName" class="font-black leading-none">—</div>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="stat"><span class="label">Score</span><span class="value" id="hudScore" style="color:#8ef58a">0</span></div>
+        <div class="stat"><span class="label">Best</span><span class="value" id="hudBest" style="color:#ffce4d">0</span></div>
+        <div class="stat"><span class="label">Stage</span><span class="value" id="hudStage" style="color:#4cc9f0">1</span></div>
+        <div class="stat"><span class="label">Lives</span><span class="value" id="hudLives">❤❤❤</span></div>
+        <div class="stat"><span class="label">Bricks</span><span class="value" id="hudBricks" style="color:#ff8fb3">0</span></div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="pauseBtn" class="btn btn-ghost btn-sm">⏸ 일시정지</button>
+        <button id="soundBtn" class="btn btn-ghost btn-sm">🔊 소리</button>
+        <button id="logoutBtn" class="btn btn-ghost btn-sm">나가기</button>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-[1fr_320px] gap-5 items-start">
+      <!-- stage -->
+      <div id="stage">
+        <canvas id="game" width="640" height="720"></canvas>
+
+        <!-- overlay -->
+        <div id="overlay" class="ov is-hidden">
+          <div class="ov-card glass">
+            <div id="ovEmoji" class="text-6xl mb-2">🎉</div>
+            <h2 id="ovTitle" class="text-3xl font-black mb-2 title-glow">제목</h2>
+            <p id="ovMsg" class="text-white/60 font-medium mb-4">메시지</p>
+            <div id="ovStats" class="grid grid-cols-3 gap-2 mb-6"></div>
+            <div class="flex gap-2 justify-center flex-wrap">
+              <button id="ovPrimary" class="btn btn-primary">다음</button>
+              <button id="ovSecondary" class="btn btn-ghost">처음으로</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- leaderboard side -->
+      <aside class="glass rounded-3xl p-5">
+        <div class="flex items-center justify-between mb-1">
+          <h3 class="font-black text-lg">🏅 실시간 TOP 10</h3>
+          <span class="chip"><span class="pulse-dot" id="lbDot"></span>LIVE</span>
+        </div>
+        <p class="text-xs text-white/40 mb-4">점수 저장 즉시 순위가 갱신됩니다.</p>
+        <div id="board" class="space-y-2 max-h-[520px] overflow-y-auto pr-1">
+          <div class="text-sm text-white/40 py-8 text-center">불러오는 중…</div>
+        </div>
+        <div class="mt-5 pt-4 border-t border-white/10 space-y-2">
+          <div class="flex justify-between text-sm"><span class="text-white/50 font-semibold">내 최고 점수</span><b id="myBest" class="font-black" style="color:#ffce4d">0</b></div>
+          <div class="flex justify-between text-sm"><span class="text-white/50 font-semibold">이번 게임 점수</span><b id="myLast" class="font-black" style="color:#8ef58a">0</b></div>
+          <div class="flex justify-between text-sm"><span class="text-white/50 font-semibold">내 순위</span><b id="myRank" class="font-black" style="color:#4cc9f0">-</b></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <footer class="w-full max-w-6xl mt-8 mb-2 text-center text-xs text-white/30 font-semibold">
+    NEON BRICKS · HTML5 Canvas + Firebase Realtime Database · 키보드 ← → 로 플레이하세요
+  </footer>
+</main>
+
+<script>
+/* =========================================================================
+   1. Firebase 설정  (아래 값만 본인 프로젝트로 교체하면 바로 동작합니다)
+   ========================================================================= */
+const firebaseConfig = {
+  apiKey: "AIzaSyACjM0--UTyArxfuj4h4VMk5wzxGFX17L8",
+  authDomain: "neon-bricks-ebc62.firebaseapp.com",
+  databaseURL: "https://neon-bricks-ebc62-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "neon-bricks-ebc62",
+  storageBucket: "neon-bricks-ebc62.firebasestorage.app",
+  messagingSenderId: "205597493916",
+  appId: "1:205597493916:web:a0a0a1f35adf1f92a47b59",
+  measurementId: "G-0FS40DMLC0"
+};
+
+/* -------------------------------------------------------------------------
+   Firebase 초기화 — 설정값이 placeholder 그대로면 자동으로 '로컬 모드'로
+   폴백하여 게임과 순위표는 그대로 사용할 수 있게 합니다.
+   ------------------------------------------------------------------------- */
+const isPlaceholder = (v) => typeof v !== 'string' || v.trim() === '' || /YOUR_/i.test(v);
+const firebaseReady = (typeof firebase !== 'undefined') &&
+  !isPlaceholder(firebaseConfig.apiKey) && !isPlaceholder(firebaseConfig.databaseURL);
+
+let db = null;
+if (firebaseReady) {
+  try {
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.database();
+  } catch (e) {
+    console.error('Firebase 초기화 실패:', e);
+  }
+}
+
+/* =========================================================================
+   2. 점수 저장 / 실시간 순위 API (Firebase ↔ localStorage 자동 전환)
+   ========================================================================= */
+const LS_BEST = 'neonbricks_best_v1';
+const LS_HIST = 'neonbricks_hist_v1';
+
+const keyOf = (name) => 'p_' + String(name).replace(/[.#$/\[\]]/g, '_');
+
+const Scores = {
+  mode: (db ? 'firebase' : 'local'),
+
+  /** 게임 결과 저장 — 플레이어별 최고 기록(best) + 전체 기록(history) */
+  save(entry) {
+    const clean = {
+      name: String(entry.name).slice(0, 12),
+      score: Number(entry.score) | 0,
+      stage: Number(entry.stage) | 0,
+      win: !!entry.win,
+      ts: Date.now()
+    };
+    if (db) {
+      try {
+        const bestRef = db.ref('best/' + keyOf(clean.name));
+        bestRef.transaction((cur) => (!cur || clean.score > (cur.score || 0)) ? clean : cur);
+        db.ref('history').push(clean);
+        return;
+      } catch (e) { console.error(e); }
+    }
+    // local fallback
+    const best = JSON.parse(localStorage.getItem(LS_BEST) || '{}');
+    const cur = best[keyOf(clean.name)];
+    if (!cur || clean.score > cur.score) best[keyOf(clean.name)] = clean;
+    localStorage.setItem(LS_BEST, JSON.stringify(best));
+    const hist = JSON.parse(localStorage.getItem(LS_HIST) || '[]');
+    hist.push(clean);
+    localStorage.setItem(LS_HIST, JSON.stringify(hist.slice(-300)));
+    window.dispatchEvent(new Event('nb:local-change'));
+  },
+
+  /** 상위 10명 실시간 구독 */
+  subscribeTop10(cb) {
+    if (db) {
+      const ref = db.ref('best').orderByChild('score').limitToLast(10);
+      const handler = (snap) => {
+        const list = [];
+        snap.forEach((c) => list.push({ id: c.key, ...c.val() }));
+        list.sort((a, b) => (b.score - a.score) || (b.ts - a.ts));
+        cb(list);
+      };
+      ref.on('value', handler, (err) => {
+        console.error(err);
+        document.getElementById('connText').textContent = 'DB 규칙 오류';
+      });
+      return;
+    }
+    const read = () => {
+      const best = JSON.parse(localStorage.getItem(LS_BEST) || '{}');
+      const list = Object.keys(best).map((k) => ({ id: k, ...best[k] }));
+      list.sort((a, b) => (b.score - a.score) || (b.ts - a.ts));
+      cb(list.slice(0, 10));
+    };
+    window.addEventListener('nb:local-change', read);
+    read();
+  }
+};
+
+/* 연결 배지 */
+(function initBadge() {
+  const dot = document.querySelector('#connBadge .pulse-dot');
+  const txt = document.getElementById('connText');
+  if (db) {
+    dot.classList.remove('warn');
+    txt.textContent = 'Firebase 실시간 연결';
+  } else {
+    txt.textContent = '로컬 모드 (Firebase 미설정)';
+    document.getElementById('fbHint').classList.remove('is-hidden');
+  }
+})();
+
+/* =========================================================================
+   3. 유틸
+   ========================================================================= */
+const $ = (id) => document.getElementById(id);
+const timeAgo = (ts) => {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return '방금';
+  if (s < 3600) return Math.floor(s / 60) + '분 전';
+  if (s < 86400) return Math.floor(s / 3600) + '시간 전';
+  return Math.floor(s / 86400) + '일 전';
+};
+const fmt = (n) => (n | 0).toLocaleString('ko-KR');
+
+/* 간단한 신디사이저 효과음 */
+let actx = null, muted = false;
+function beep(freq, dur = 0.06, type = 'square', vol = 0.045) {
+  if (muted) return;
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, actx.currentTime);
+    g.gain.setValueAtTime(vol, actx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(); o.stop(actx.currentTime + dur);
+  } catch (e) { /* noop */ }
+}
+const SFX = {
+  paddle: () => beep(300, .05, 'square', .05),
+  brick:  () => beep(520 + Math.random() * 120, .05, 'triangle', .05),
+  hard:   () => beep(180, .07, 'sawtooth', .05),
+  launch: () => beep(660, .09, 'sine', .06),
+  lose:   () => beep(150, .3, 'sawtooth', .06),
+  clear:  () => { beep(660,.1,'sine',.06); setTimeout(()=>beep(880,.12,'sine',.06),110); setTimeout(()=>beep(1170,.16,'sine',.06),230); },
+  win:    () => { [523,659,784,1046,1318].forEach((f,i)=>setTimeout(()=>beep(f,.16,'sine',.06), i*130)); },
+  over:   () => { [392,330,262,196].forEach((f,i)=>setTimeout(()=>beep(f,.2,'triangle',.06), i*140)); }
+};
+
+/* =========================================================================
+   4. 게임 엔진
+   ========================================================================= */
+const cvs = $('game');
+const ctx = cvs.getContext('2d');
+const W = cvs.width, H = cvs.height;
+
+const PALETTE = ['#ff4d8d', '#ff8fb3', '#ffce4d', '#8ef58a', '#4cc9f0', '#b388ff'];
+
+const LEVELS = [
+  { cols: 10, rows: 5, speed: 360, pattern: 'solid',   paddle: 116 },
+  { cols: 10, rows: 6, speed: 405, pattern: 'checker', paddle: 104 },
+  { cols: 11, rows: 7, speed: 455, pattern: 'pyramid', paddle: 96 }
+];
+
+const G = {
+  state: 'login',        // login | ready | playing | paused | clear | over | win
+  player: '',
+  score: 0,
+  best: 0,
+  lives: 3,
+  stage: 1,
+  bricks: [],
+  particles: [],
+  floats: [],
+  trail: [],
+  shakeT: 0,
+  submitted: false,
+  paddle: { x: W / 2 - 58, y: H - 58, w: 116, h: 15, speed: 560 },
+  ball:   { x: W / 2, y: H - 80, r: 8, vx: 0, vy: 0, speed: 360 },
+  keys: { left: false, right: false }
+};
+
+/* ---------- 레벨 빌드 ---------- */
+function buildStage(n) {
+  const cfg = LEVELS[Math.min(n, LEVELS.length) - 1];
+  const padX = 34, top = 92, gap = 7;
+  const bw = (W - padX * 2 - gap * (cfg.cols - 1)) / cfg.cols;
+  const bh = 26;
+  G.bricks = [];
+  for (let r = 0; r < cfg.rows; r++) {
+    for (let c = 0; c < cfg.cols; c++) {
+      let fill = true;
+      if (cfg.pattern === 'checker') fill = (r + c) % 2 === 0;
+      if (cfg.pattern === 'pyramid') {
+        const inset = Math.min(r, cfg.rows - 1 - r);
+        fill = c >= inset && c < cfg.cols - inset;
+      }
+      if (!fill) continue;
+      const hard = (n >= 3 && r === 0);
+      G.bricks.push({
+        x: padX + c * (bw + gap),
+        y: top + r * (bh + gap),
+        w: bw, h: bh,
+        hp: hard ? 2 : 1,
+        maxHp: hard ? 2 : 1,
+        color: PALETTE[r % PALETTE.length],
+        points: 100 + (cfg.rows - 1 - r) * 20,
+        hitT: 0
+      });
+    }
+  }
+  G.paddle.w = cfg.paddle;
+  G.paddle.x = W / 2 - G.paddle.w / 2;
+  G.ball.speed = cfg.speed;
+  resetBall();
+}
+
+function resetBall() {
+  G.paddle.x = W / 2 - G.paddle.w / 2;
+  G.ball.x = W / 2;
+  G.ball.y = G.paddle.y - G.ball.r - 1;
+  G.ball.vx = 0; G.ball.vy = 0;
+  G.trail = [];
+  G.state = 'ready';
+}
+
+function launchBall() {
+  if (G.state !== 'ready') return;
+  const angle = (-60 + Math.random() * 120) * Math.PI / 180;
+  G.ball.vx = Math.sin(angle) * G.ball.speed;
+  G.ball.vy = -Math.cos(angle) * G.ball.speed;
+  G.state = 'playing';
+  SFX.launch();
+}
+
+/* ---------- 효과 ---------- */
+function burst(x, y, color, n = 12) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, s = 60 + Math.random() * 220;
+    G.particles.push({
+      x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+      life: .45 + Math.random() * .45, max: .9,
+      size: 2 + Math.random() * 4, color
+    });
+  }
+}
+function floatText(x, y, text, color) {
+  G.floats.push({ x, y, text, color, life: .85 });
+}
+
+/* ---------- 업데이트 ---------- */
+function update(dt) {
+  // 파티클 / 플로팅 텍스트는 항상 갱신
+  for (let i = G.particles.length - 1; i >= 0; i--) {
+    const p = G.particles[i];
+    p.life -= dt;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    p.vy += 520 * dt; p.vx *= 0.99;
+    if (p.life <= 0) G.particles.splice(i, 1);
+  }
+  for (let i = G.floats.length - 1; i >= 0; i--) {
+    const f = G.floats[i];
+    f.life -= dt; f.y -= 46 * dt;
+    if (f.life <= 0) G.floats.splice(i, 1);
+  }
+  if (G.shakeT > 0) G.shakeT -= dt;
+  for (const b of G.bricks) if (b.hitT > 0) b.hitT -= dt;
+
+  if (G.state !== 'playing' && G.state !== 'ready') return;
+
+  /* 패들 이동 (키보드) */
+  const dir = (G.keys.right ? 1 : 0) - (G.keys.left ? 1 : 0);
+  G.paddle.x += dir * G.paddle.speed * dt;
+  G.paddle.x = Math.max(8, Math.min(W - 8 - G.paddle.w, G.paddle.x));
+
+  if (G.state === 'ready') {
+    G.ball.x = G.paddle.x + G.paddle.w / 2;
+    G.ball.y = G.paddle.y - G.ball.r - 1;
+    return;
+  }
+
+  /* 공 이동 — 충돌 누락 방지를 위해 소단위로 분할 */
+  const dist = Math.hypot(G.ball.vx, G.ball.vy) * dt;
+  const steps = Math.max(1, Math.ceil(dist / 5));
+  const sdt = dt / steps;
+  for (let s = 0; s < steps; s++) {
+    G.ball.x += G.ball.vx * sdt;
+    G.ball.y += G.ball.vy * sdt;
+
+    // 벽
+    if (G.ball.x - G.ball.r < 0) { G.ball.x = G.ball.r; G.ball.vx *= -1; SFX.paddle(); }
+    if (G.ball.x + G.ball.r > W) { G.ball.x = W - G.ball.r; G.ball.vx *= -1; SFX.paddle(); }
+    if (G.ball.y - G.ball.r < 0) { G.ball.y = G.ball.r; G.ball.vy *= -1; SFX.paddle(); }
+
+    // 패들
+    if (G.ball.vy > 0 &&
+        G.ball.y + G.ball.r >= G.paddle.y &&
+        G.ball.y - G.ball.r <= G.paddle.y + G.paddle.h &&
+        G.ball.x >= G.paddle.x - G.ball.r &&
+        G.ball.x <= G.paddle.x + G.paddle.w + G.ball.r) {
+      const hit = (G.ball.x - (G.paddle.x + G.paddle.w / 2)) / (G.paddle.w / 2);
+      const angle = Math.max(-1, Math.min(1, hit)) * (Math.PI / 3); // ±60°
+      const sp = Math.min(G.ball.speed * 1.45, Math.hypot(G.ball.vx, G.ball.vy) * 1.03);
+      G.ball.vx = Math.sin(angle) * sp;
+      G.ball.vy = -Math.abs(Math.cos(angle) * sp);
+      G.ball.y = G.paddle.y - G.ball.r - 0.5;
+      SFX.paddle();
+      burst(G.ball.x, G.paddle.y, '#ffffff', 4);
+    }
+
+    // 벽돌
+    for (let i = 0; i < G.bricks.length; i++) {
+      const b = G.bricks[i];
+      if (G.ball.x + G.ball.r < b.x || G.ball.x - G.ball.r > b.x + b.w ||
+          G.ball.y + G.ball.r < b.y || G.ball.y - G.ball.r > b.y + b.h) continue;
+
+      // 침투 깊이 기준 반사축 결정
+      const ox = Math.min(G.ball.x + G.ball.r - b.x, b.x + b.w - (G.ball.x - G.ball.r));
+      const oy = Math.min(G.ball.y + G.ball.r - b.y, b.y + b.h - (G.ball.y - G.ball.r));
+      if (ox < oy) G.ball.vx *= -1; else G.ball.vy *= -1;
+
+      b.hp--; b.hitT = .18;
+      if (b.hp <= 0) {
+        G.bricks.splice(i, 1);
+        G.score += b.points;
+        burst(b.x + b.w / 2, b.y + b.h / 2, b.color, 14);
+        floatText(b.x + b.w / 2, b.y, '+' + b.points, b.color);
+        SFX.brick();
+      } else {
+        burst(b.x + b.w / 2, b.y + b.h / 2, '#ffffff', 6);
+        SFX.hard();
+      }
+      updateHUD();
+      break;
+    }
+
+    // 낙하
+    if (G.ball.y - G.ball.r > H) { loseLife(); return; }
+  }
+
+  // 트레일
+  G.trail.push({ x: G.ball.x, y: G.ball.y });
+  if (G.trail.length > 14) G.trail.shift();
+
+  // 클리어 체크
+  if (G.bricks.length === 0 && G.state === 'playing') stageClear();
+}
+
+function loseLife() {
+  G.lives--;
+  G.shakeT = .38;
+  burst(G.ball.x, H - 10, '#ff4d8d', 22);
+  SFX.lose();
+  updateHUD();
+  if (G.lives <= 0) { gameOver(false); return; }
+  resetBall();
+}
+
+function stageClear() {
+  const bonus = 500 * G.stage + G.lives * 100;
+  G.score += bonus;
+  updateHUD();
+  SFX.clear();
+  if (G.stage >= LEVELS.length) { victory(); return; }
+  G.state = 'clear';
+  G.submitted = false;
+  showOverlay({
+    emoji: '🎊',
+    title: 'STAGE ' + G.stage + ' CLEAR!',
+    msg: '클리어 보너스 <b style="color:#8ef58a">+' + fmt(bonus) + '</b> 점을 획득했어요.',
+    stats: [
+      ['점수', fmt(G.score), '#8ef58a'],
+      ['생명', '❤'.repeat(G.lives), '#ff8fb3'],
+      ['다음', 'STAGE ' + (G.stage + 1), '#4cc9f0']
+    ],
+    primary: '다음 스테이지 →',
+    onPrimary: () => { G.stage++; buildStage(G.stage); updateHUD(); hideOverlay(); },
+    secondary: '그만하기',
+    onSecondary: () => { G.state = 'over'; gameOver(false); }
+  });
+}
+
+function victory() {
+  G.state = 'win';
+  SFX.win();
+  submitScore();
+  showOverlay({
+    emoji: '👑',
+    title: '최종 승리!',
+    msg: '모든 벽돌을 파괴했습니다! 전설의 패들 마스터 <b>' + escapeHtml(G.player) + '</b>',
+    stats: [
+      ['최종 점수', fmt(G.score), '#ffce4d'],
+      ['남은 생명', '❤'.repeat(G.lives), '#ff8fb3'],
+      ['도전 stage', G.stage + '/3', '#4cc9f0']
+    ],
+    primary: '다시 도전',
+    onPrimary: () => startGame(G.player),
+    secondary: '순위표 보기'
+  });
+}
+
+function gameOver(won) {
+  G.state = 'over';
+  SFX.over();
+  submitScore();
+  showOverlay({
+    emoji: '💥',
+    title: 'GAME OVER',
+    msg: '생명을 모두 잃었어요. 다시 도전해 보세요!',
+    stats: [
+      ['점수', fmt(G.score), '#8ef58a'],
+      ['도달', 'STAGE ' + G.stage, '#4cc9f0'],
+      ['최고', fmt(Math.max(G.best, G.score)), '#ffce4d']
+    ],
+    primary: '다시 하기',
+    onPrimary: () => startGame(G.player),
+    secondary: '처음으로'
+  });
+}
+
+function submitScore() {
+  if (G.submitted) return;
+  G.submitted = true;
+  Scores.save({ name: G.player, score: G.score, stage: G.stage, win: G.state === 'win' });
+  if (G.score > G.best) { G.best = G.score; }
+  updateHUD();
+}
+
+/* ---------- 렌더링 ---------- */
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function render() {
+  ctx.save();
+  if (G.shakeT > 0) {
+    const m = G.shakeT * 18;
+    ctx.translate((Math.random() - .5) * m, (Math.random() - .5) * m);
+  }
+
+  // 배경
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0a0d22');
+  g.addColorStop(.55, '#070917');
+  g.addColorStop(1, '#0c0a20');
+  ctx.fillStyle = g;
+  ctx.fillRect(-20, -20, W + 40, H + 40);
+
+  // 배경 격자 + 글로우 라인
+  ctx.strokeStyle = 'rgba(255,255,255,.035)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke(); }
+  for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+
+  // 바닥 데스라인
+  ctx.strokeStyle = 'rgba(255,77,141,.35)';
+  ctx.setLineDash([12, 10]); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, H - 6); ctx.lineTo(W, H - 6); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // 벽돌
+  for (const b of G.bricks) {
+    const dim = b.hp < b.maxHp;
+    ctx.save();
+    ctx.shadowColor = b.color;
+    ctx.shadowBlur = dim ? 6 : 16;
+    ctx.fillStyle = b.color;
+    ctx.globalAlpha = dim ? .55 : 1;
+    roundRect(b.x, b.y, b.w, b.h, 6);
+    ctx.fill();
+    ctx.restore();
+
+    // 상단 하이라이트
+    ctx.fillStyle = 'rgba(255,255,255,.28)';
+    roundRect(b.x + 3, b.y + 3, b.w - 6, 5, 2.5); ctx.fill();
+    // 테두리
+    ctx.strokeStyle = 'rgba(255,255,255,.22)'; ctx.lineWidth = 1;
+    roundRect(b.x + .5, b.y + .5, b.w - 1, b.h - 1, 6); ctx.stroke();
+    // 금갱 벽돌 표시
+    if (b.maxHp > 1) {
+      ctx.fillStyle = 'rgba(10,6,30,.75)';
+      ctx.font = '900 11px Outfit, sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(dim ? '✕' : '✦', b.x + b.w / 2, b.y + b.h / 2 + 1);
+    }
+    if (b.hitT > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,' + (b.hitT * 2.2) + ')';
+      roundRect(b.x, b.y, b.w, b.h, 6); ctx.fill();
+    }
+  }
+
+  // 파티클
+  for (const p of G.particles) {
+    ctx.globalAlpha = Math.max(0, p.life / p.max);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+  }
+  ctx.globalAlpha = 1;
+
+  // 패들
+  const pg = ctx.createLinearGradient(G.paddle.x, G.paddle.y, G.paddle.x + G.paddle.w, G.paddle.y + G.paddle.h);
+  pg.addColorStop(0, '#4cc9f0'); pg.addColorStop(.5, '#b388ff'); pg.addColorStop(1, '#ff4d8d');
+  ctx.save();
+  ctx.shadowColor = 'rgba(179,136,255,.9)'; ctx.shadowBlur = 22;
+  ctx.fillStyle = pg;
+  roundRect(G.paddle.x, G.paddle.y, G.paddle.w, G.paddle.h, 8); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = 'rgba(255,255,255,.45)';
+  roundRect(G.paddle.x + 6, G.paddle.y + 2.5, G.paddle.w - 12, 3, 2); ctx.fill();
+
+  // 공 트레일
+  for (let i = 0; i < G.trail.length; i++) {
+    const t = G.trail[i], a = (i / G.trail.length) * .35;
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(t.x, t.y, G.ball.r * (i / G.trail.length) * .9, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // 공
+  ctx.save();
+  ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 20;
+  const bg = ctx.createRadialGradient(G.ball.x - 3, G.ball.y - 3, 1, G.ball.x, G.ball.y, G.ball.r);
+  bg.addColorStop(0, '#ffffff'); bg.addColorStop(1, '#b9e6ff');
+  ctx.fillStyle = bg;
+  ctx.beginPath(); ctx.arc(G.ball.x, G.ball.y, G.ball.r, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+
+  // 플로팅 점수
+  for (const f of G.floats) {
+    ctx.globalAlpha = Math.max(0, Math.min(1, f.life / .85));
+    ctx.fillStyle = f.color;
+    ctx.font = '900 16px Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+
+  // 안내 문구
+  if (G.state === 'ready') {
+    const pulse = .6 + Math.sin(Date.now() / 260) * .25;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 20px "Noto Sans KR", Outfit, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('SPACE 를 눌러 공을 발사하세요', W / 2, H / 2 + 40);
+    ctx.font = '600 14px "Noto Sans KR", Outfit, sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,.55)';
+    ctx.fillText('← → 로 패들을 움직이세요', W / 2, H / 2 + 68);
+    ctx.globalAlpha = 1;
+  }
+  if (G.state === 'paused') {
+    ctx.fillStyle = 'rgba(4,5,14,.55)';
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  ctx.restore();
+}
+
+/* ---------- 메인 루프 ---------- */
+let last = performance.now();
+function loop(t) {
+  const dt = Math.min((t - last) / 1000, .034);
+  last = t;
+  update(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* =========================================================================
+   5. 입력 처리
+   ========================================================================= */
+window.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName) || '';
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;   // 입력 중에는 게임 키 차단
+  const k = e.key;
+  if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(k)) e.preventDefault();
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') G.keys.left = true;
+  if (k === 'ArrowRight' || k === 'd' || k === 'D') G.keys.right = true;
+  if (k === ' ' && G.state === 'ready') launchBall();
+  if (k === 'p' || k === 'P' || k === 'Escape') togglePause();
+  if (k === 'Enter' && !$('overlay').classList.contains('is-hidden')) $('ovPrimary').click();
+});
+window.addEventListener('keyup', (e) => {
+  const k = e.key;
+  if (k === 'ArrowLeft' || k === 'a' || k === 'A') G.keys.left = false;
+  if (k === 'ArrowRight' || k === 'd' || k === 'D') G.keys.right = false;
+});
+
+/* 마우스/터치 보조 조작 */
+function pointerMove(e) {
+  if (G.state !== 'playing' && G.state !== 'ready') return;
+  const rect = cvs.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX);
+  const x = (cx - rect.left) * (W / rect.width);
+  G.paddle.x = Math.max(8, Math.min(W - 8 - G.paddle.w, x - G.paddle.w / 2));
+  if (G.state === 'ready') { G.ball.x = G.paddle.x + G.paddle.w / 2; }
+}
+cvs.addEventListener('mousemove', pointerMove);
+cvs.addEventListener('touchmove', (e) => { e.preventDefault(); pointerMove(e); }, { passive: false });
+cvs.addEventListener('click', () => { if (G.state === 'ready') launchBall(); });
+
+window.addEventListener('blur', () => { G.keys.left = G.keys.right = false; });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && G.state === 'playing') togglePause();
+});
+
+/* =========================================================================
+   6. UI 흐름
+   ========================================================================= */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
+}
+
+function updateHUD() {
+  $('hudScore').textContent = fmt(G.score);
+  $('hudBest').textContent = fmt(Math.max(G.best, G.score));
+  $('hudStage').textContent = G.stage + '/3';
+  $('hudLives').textContent = G.lives > 0 ? '❤'.repeat(G.lives) : '—';
+  $('hudBricks').textContent = G.bricks.length;
+  $('myLast').textContent = fmt(G.score);
+}
+
+/* ---------- 오버레이 ---------- */
+function showOverlay(o) {
+  $('ovEmoji').textContent = o.emoji || '🎮';
+  $('ovTitle').innerHTML = o.title || '';
+  $('ovMsg').innerHTML = o.msg || '';
+  $('ovStats').innerHTML = (o.stats || []).map(([l, v, c]) =>
+    '<div class="glass-soft rounded-xl py-2.5 px-1"><div class="text-[10px] tracking-widest uppercase text-white/45 font-bold">' + l +
+    '</div><div class="text-lg font-black" style="color:' + c + '">' + v + '</div></div>').join('');
+  const p = $('ovPrimary'), s = $('ovSecondary');
+  p.textContent = o.primary || '확인';
+  p.onclick = () => { if (o.onPrimary) o.onPrimary(); else hideOverlay(); };
+  s.textContent = o.secondary || '';
+  s.classList.toggle('is-hidden', !o.secondary);
+  s.onclick = () => { hideOverlay(); if (o.onSecondary) o.onSecondary(); };
+  $('overlay').classList.remove('is-hidden');
+}
+function hideOverlay() { $('overlay').classList.add('is-hidden'); }
+
+/* ---------- 게임 시작 ---------- */
+function startGame(name) {
+  G.player = name;
+  G.score = 0; G.lives = 3; G.stage = 1;
+  G.particles = []; G.floats = []; G.submitted = false;
+  buildStage(1);
+  updateHUD();
+  $('hudName').textContent = name;
+  $('avatar').textContent = name.slice(0, 1).toUpperCase();
+  $('loginScreen').classList.add('is-hidden');
+  $('gameScreen').classList.remove('is-hidden');
+  hideOverlay();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+/* ---------- 로그인 ---------- */
+$('loginForm').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('nameInput').value.trim().replace(/\s+/g, ' ');
+  if (!name) {
+    $('loginError').classList.remove('is-hidden');
+    $('nameInput').focus();
+    return;
+  }
+  $('loginError').classList.add('is-hidden');
+  localStorage.setItem('neonbricks_player', name);
+  beep(520, .08, 'sine', .05);
+  startGame(name);
+});
+$('nameInput').addEventListener('input', () => $('loginError').classList.add('is-hidden'));
+
+/* ---------- 버튼들 ---------- */
+function togglePause() {
+  if (G.state === 'playing') {
+    G.state = 'paused';
+    $('pauseBtn').textContent = '▶ 재개';
+    showOverlay({
+      emoji: '⏸', title: '일시정지', msg: 'P 키 또는 ESC 로 다시 시작할 수 있어요.',
+      primary: '계속하기', onPrimary: () => { G.state = 'playing'; $('pauseBtn').textContent = '⏸ 일시정지'; hideOverlay(); }
+    });
+  } else if (G.state === 'paused') {
+    G.state = 'playing';
+    $('pauseBtn').textContent = '⏸ 일시정지';
+    hideOverlay();
+  }
+}
+$('pauseBtn').addEventListener('click', togglePause);
+$('soundBtn').addEventListener('click', () => {
+  muted = !muted;
+  $('soundBtn').textContent = muted ? '🔇 음소거' : '🔊 소리';
+});
+$('logoutBtn').addEventListener('click', () => {
+  hideOverlay();
+  G.state = 'login';
+  $('gameScreen').classList.add('is-hidden');
+  $('loginScreen').classList.remove('is-hidden');
+  $('pauseBtn').textContent = '⏸ 일시정지';
+});
+
+/* =========================================================================
+   7. 실시간 순위표 렌더링
+   ========================================================================= */
+let topList = [];
+const MEDAL = ['🥇', '🥈', '🥉'];
+
+function renderBoard(list) {
+  topList = list;
+  const html = list.length ? list.map((e, i) => {
+    const me = G.player && e.name === G.player;
+    return '<div class="lb-row ' + (i < 3 ? 'top' + (i + 1) : '') + (me ? ' me' : '') + '">' +
+      '<div class="lb-rank">' + (i < 3 ? MEDAL[i] : i + 1) + '</div>' +
+      '<div class="min-w-0"><div class="lb-name">' + escapeHtml(e.name || '???') +
+      (me ? ' <span class="text-[10px] font-black px-1.5 py-0.5 rounded-md" style="background:rgba(255,77,141,.25);color:#ffb3cd">ME</span>' : '') + '</div>' +
+      '<div class="lb-sub">' + timeAgo(e.ts || Date.now()) + ' · STAGE ' + (e.stage || 1) + (e.win ? ' · 👑WIN' : '') + '</div></div>' +
+      '<div class="lb-score">' + fmt(e.score) + '</div></div>';
+  }).join('') : '<div class="text-sm text-white/40 py-8 text-center">아직 기록이 없습니다.<br>첫 번째 주인공이 되어 보세요! 🎮</div>';
+
+  $('board').innerHTML = html;
+  $('loginBoard').innerHTML = html;
+
+  const total = list.length;
+  $('loginCountChip').textContent = total ? '상위 ' + total + '명' : '기록 없음';
+
+  // 내 기록 요약
+  const mine = list.find((e) => G.player && e.name === G.player);
+  if (mine) {
+    G.best = Math.max(G.best, mine.score);
+    $('hudBest').textContent = fmt(G.best);
+    $('myBest').textContent = fmt(mine.score);
+    $('myRank').textContent = (list.indexOf(mine) + 1) + '위';
+  } else {
+    $('myBest').textContent = fmt(G.best);
+    $('myRank').textContent = G.player ? '기록 없음' : '-';
+  }
+  updateHUD();
+}
+
+Scores.subscribeTop10(renderBoard);
+
+/* 저장된 이름 기억 */
+const savedName = localStorage.getItem('neonbricks_player');
+if (savedName) $('nameInput').value = savedName;
+</script>
+</body>
+</html>
